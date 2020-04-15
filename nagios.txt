@@ -1,0 +1,202 @@
+sudo apt-get update
+sudo apt-get install wget build-essential apache2 php apache2-mod-php7.0 php-gd libgd-dev sendmail unzip
+
+useradd nagios
+groupadd nagcmd
+usermod -a -G nagcmd nagios
+usermod -a -G nagios,nagcmd www-data
+
+cd ~
+wget https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.2.0.tar.gz
+tar -xzf nagios*.tar.gz
+cd nagios-4.2.0
+
+./configure --with-nagios-group=nagios --with-command-group=nagcmd
+
+make all
+sudo make install
+sudo make install-commandmode
+sudo make install-init
+sudo make install-config
+/usr/bin/install -c -m 644 sample-config/httpd.conf /etc/apache2/sites-available/nagios.conf
+
+cp -R contrib/eventhandlers/ /usr/local/nagios/libexec/
+chown -R nagios:nagios /usr/local/nagios/libexec/eventhandlers
+
+cd ~
+wget https://nagios-plugins.org/download/nagios-plugins-2.1.2.tar.gz
+tar -xzf nagios-plugins*.tar.gz
+cd nagios-plugins-2.1.2/
+
+./configure --with-nagios-user=nagios --with-nagios-group=nagios --with-openssl
+make
+make install
+
+sudo a2enmod rewrite
+sudo a2enmod cgi
+
+sudo htpasswd -c /usr/local/nagios/etc/htpasswd.users nagiosadmin
+
+sudo ln -s /etc/apache2/sites-available/nagios.conf /etc/apache2/sites-enabled/
+
+service apache2 restart
+service nagios start
+
+----------------------------------
+fix
+
+cd /etc/init.d/
+cp /etc/init.d/skeleton /etc/init.d/nagios
+
+vim /etc/init.d/nagios
+
+DESC="Nagios"
+NAME=nagios
+DAEMON=/usr/local/nagios/bin/$NAME
+DAEMON_ARGS="-d /usr/local/nagios/etc/nagios.cfg"
+PIDFILE=/usr/local/nagios/var/$NAME.lock
+
+
+chmod +x /etc/init.d/nagios
+service apache2 restart
+service nagios start
+
+/etc/init.d/nagios status
+/etc/init.d/nagios restart
+/etc/init.d/nagios status
+
+sudo systemctl list-unit-files
+sudo systemctl  nagios.service
+service nagios restart
+service nagios status    # running
+-------------------------------------------------------
+Client
+
+sudo apt-get update
+sudo apt-get install nagios-nrpe-server nagios-plugins
+vim /etc/nagios/nrpe.cfg
+server_address=192.168.1.9  #server private ip
+
+service nagios-nrpe-server restart
+
+
+As server
+
+vim /usr/local/nagios/etc/servers/ubuntu_host.cfg
+
+# Ubuntu Host configuration file
+
+define host {
+        use                          linux-server
+        host_name                    ubuntu_host
+        alias                        Ubuntu Host
+        address                      192.168.1.10
+        register                     1
+}
+
+define service {
+      host_name                       ubuntu_host
+      service_description             PING
+      check_command                   check_ping!100.0,20%!500.0,60%
+      max_check_attempts              2
+      check_interval                  2
+      retry_interval                  2
+      check_period                    24x7
+      check_freshness                 1
+      contact_groups                  admins
+      notification_interval           2
+      notification_period             24x7
+      notifications_enabled           1
+      register                        1
+}
+
+define service {
+      host_name                       ubuntu_host
+      service_description             Check Users
+      check_command           check_local_users!20!50
+      max_check_attempts              2
+      check_interval                  2
+      retry_interval                  2
+      check_period                    24x7
+      check_freshness                 1
+      contact_groups                  admins
+      notification_interval           2
+      notification_period             24x7
+      notifications_enabled           1
+      register                        1
+}
+
+define service {
+      host_name                       ubuntu_host
+      service_description             Local Disk
+      check_command                   check_local_disk!20%!10%!/
+      max_check_attempts              2
+      check_interval                  2
+      retry_interval                  2
+      check_period                    24x7
+      check_freshness                 1
+      contact_groups                  admins
+      notification_interval           2
+      notification_period             24x7
+      notifications_enabled           1
+      register                        1
+}
+
+define service {
+      host_name                       ubuntu_host
+      service_description             Check SSH
+      check_command                   check_ssh
+      max_check_attempts              2
+      check_interval                  2
+      retry_interval                  2
+      check_period                    24x7
+      check_freshness                 1
+      contact_groups                  admins
+      notification_interval           2
+      notification_period             24x7
+      notifications_enabled           1
+      register                        1
+}
+
+define service {
+      host_name                       ubuntu_host
+      service_description             Total Process
+      check_command                   check_local_procs!250!400!RSZDT
+      max_check_attempts              2
+      check_interval                  2
+      retry_interval                  2
+      check_period                    24x7
+      check_freshness                 1
+      contact_groups                  admins
+      notification_interval           2
+      notification_period             24x7
+      notifications_enabled           1
+      register                        1
+}
+
+
+/usr/local/nagios/bin/nagios -v /usr/local/nagios/etc/nagios.cfg
+
+
+
+service nagios-nrpe-server restart
+
+service apache2 restart
+service nagios restart
+
+----------------------------------------------
+Lauch in browser
+IP/nagios         nagiosadmin/admin
+
+--------------------------------
+tests
+
+on ubuntu_host machine, stop ssh
+
+/etc/init.d/ssh stop and check evenlogs and service status
+
+Alerts -> history
+Alerrts -> summary
+System -> configuration
+
+Stop nagios client and check status
